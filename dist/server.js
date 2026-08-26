@@ -94,7 +94,51 @@ function installLogo(dataDir) {
   if (changed) copyFileSync(logoSource, destination);
   return { path: destination, changed };
 }
-function provision(dataDir) {
+function factoryAuthPath() {
+  return join(homedir(), ".factory", "auth.v2.file");
+}
+function hasFactoryLoginFile() {
+  return existsSync(factoryAuthPath());
+}
+function envHasApiKey(env) {
+  return isObject(env) && typeof env.FACTORY_API_KEY === "string" && env.FACTORY_API_KEY.length > 0;
+}
+function readDotenv(path) {
+  if (!existsSync(path)) return {};
+  const env = {};
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq <= 0) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let value = trimmed.slice(eq + 1).trim();
+    if (value.startsWith('"') && value.endsWith('"') || value.startsWith("'") && value.endsWith("'")) {
+      value = value.slice(1, -1);
+    }
+    env[key] = value;
+  }
+  return env;
+}
+function pluginEnvPath(dataDir) {
+  return join(dataDir, "plugins", PROFILE.id, ".env");
+}
+function resolveFactoryApiKey(dataDir, existing, setting) {
+  if (typeof setting === "string" && setting.length > 0) return setting;
+  const fromFile = readDotenv(pluginEnvPath(dataDir)).FACTORY_API_KEY;
+  if (typeof fromFile === "string" && fromFile.length > 0) return fromFile;
+  if (envHasApiKey(process.env)) return process.env.FACTORY_API_KEY;
+  if (envHasApiKey(existing?.env)) return (existing?.env).FACTORY_API_KEY;
+  return void 0;
+}
+function managedEnv(dataDir, existing, setting) {
+  const env = isObject(existing?.env) ? { ...existing.env } : {};
+  const key = resolveFactoryApiKey(dataDir, existing, setting);
+  if (key) env.FACTORY_API_KEY = key;
+  else delete env.FACTORY_API_KEY;
+  return env;
+}
+function provision(dataDir, factoryApiKey) {
   const configPath = join(dataDir, "config.json");
   const config = readConfig(configPath);
   const agents = Array.isArray(config.customAcpAgents) ? [...config.customAcpAgents] : [];
@@ -102,14 +146,13 @@ function provision(dataDir) {
   const current = index >= 0 ? agents[index] : void 0;
   const binary = findBinary(current);
   if (binary === null) throw new Error(`${PROFILE.binary} was not found. ${PROFILE.installHint}`);
-  const existingEnv = isObject(current?.env) ? current.env : {};
   const managed = {
     ...current,
     id: PROFILE.id,
     displayName: PROFILE.displayName,
     command: binary,
     args: [...PROFILE.args],
-    env: existingEnv,
+    env: managedEnv(dataDir, current, factoryApiKey),
     logo: `logos/${PROFILE.id}.svg`,
     modelCli: {
       selectFlag: PROFILE.modelCli.selectFlag,
@@ -139,6 +182,13 @@ function unregister(dataDir) {
   return true;
 }
 function plugin(bb) {
+  const settings = bb.settings.define({
+    factoryApiKey: {
+      type: "string",
+      label: "Factory API key",
+      secret: true
+    }
+  });
   async function dataDir() {
     try {
       const config = await bb.sdk.system.config();
@@ -152,10 +202,16 @@ function plugin(bb) {
     await bb.sdk.system.reloadConfig();
   }
   async function repair() {
-    const result = provision(await dataDir());
+    const { factoryApiKey } = await settings.get();
+    const result = provision(await dataDir(), factoryApiKey);
     if (result.changed) await reloadConfig();
     return result;
   }
+  settings.onChange(() => {
+    void repair().catch((error) => {
+      bb.log.error(`Failed to apply Factory API key: ${String(error)}`);
+    });
+  });
   bb.background.service("provision", {
     async start() {
       try {
@@ -208,17 +264,27 @@ CLI: ${result.binary}
         const agents = Array.isArray(config.customAcpAgents) ? config.customAcpAgents : [];
         const entry = agents.find((agent) => agent?.id === PROFILE.id);
         const binary = findBinary(entry);
+        const loginFile = hasFactoryLoginFile();
+        const apiKey = Boolean(resolveFactoryApiKey(root, entry));
         let registered = false;
         try {
           registered = (await bb.sdk.providers.list()).some((provider) => provider.id === PROFILE.providerId);
         } catch {
         }
+        const ready = Boolean(binary && entry && registered && (apiKey || loginFile));
         return {
-          exitCode: binary && entry && registered ? 0 : 1,
+          exitCode: ready ? 0 : 1,
           stdout: [
             `CLI: ${binary ?? "NOT FOUND"}`,
             `config entry: ${entry ? "present" : "missing"}`,
-            `bb provider ${PROFILE.providerId}: ${registered ? "registered" : "NOT registered"}`
+            `bb provider ${PROFILE.providerId}: ${registered ? "registered" : "NOT registered"}`,
+            `Factory login file: ${loginFile ? factoryAuthPath() : "MISSING"}`,
+            `FACTORY_API_KEY: ${apiKey ? "set" : "not set"}`,
+            ...ready ? apiKey ? [] : [
+              'Interactive droid login is present. Long-lived ACP processes can still drop that token; recycle with `bb thread stop <id>` then `bb thread tell --mode auto <id> "continue"`.'
+            ] : [
+              "Factory is not authenticated for ACP. Run `droid` to log in, or set FACTORY_API_KEY (plugin setting, ~/.bb/plugins/droid/.env, or the bb process environment) and `bb droid repair`."
+            ]
           ].join("\n") + "\n"
         };
       }
