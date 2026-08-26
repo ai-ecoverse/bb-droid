@@ -105,53 +105,19 @@ function factoryAuthPath(): string {
   return join(homedir(), ".factory", "auth.v2.file");
 }
 
-function hasFactoryLoginFile(): boolean {
-  return existsSync(factoryAuthPath());
-}
-
-function envHasApiKey(env: unknown): boolean {
-  return isObject(env) && typeof env.FACTORY_API_KEY === "string" && env.FACTORY_API_KEY.length > 0;
-}
-
-function readDotenv(path: string): JsonObject {
-  if (!existsSync(path)) return {};
-  const env: JsonObject = {};
-  for (const line of readFileSync(path, "utf8").split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eq = trimmed.indexOf("=");
-    if (eq <= 0) continue;
-    const key = trimmed.slice(0, eq).trim();
-    let value = trimmed.slice(eq + 1).trim();
-    if (
-      (value.startsWith("\"") && value.endsWith("\""))
-      || (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-    env[key] = value;
+function envApiKey(env: unknown): string | undefined {
+  if (!isObject(env) || typeof env.FACTORY_API_KEY !== "string" || env.FACTORY_API_KEY.length === 0) {
+    return undefined;
   }
-  return env;
+  return env.FACTORY_API_KEY;
 }
 
-function pluginEnvPath(dataDir: string): string {
-  return join(dataDir, "plugins", PROFILE.id, ".env");
-}
-
-function resolveFactoryApiKey(dataDir: string, existing?: CustomAgent, setting?: string): string | undefined {
-  if (typeof setting === "string" && setting.length > 0) return setting;
-  const fromFile = readDotenv(pluginEnvPath(dataDir)).FACTORY_API_KEY;
-  if (typeof fromFile === "string" && fromFile.length > 0) return fromFile;
-  if (envHasApiKey(process.env)) return process.env.FACTORY_API_KEY;
-  if (envHasApiKey(existing?.env)) return (existing?.env as JsonObject).FACTORY_API_KEY as string;
-  return undefined;
-}
-
-function managedEnv(dataDir: string, existing?: CustomAgent, setting?: string): JsonObject {
+function managedEnv(existing?: CustomAgent, setting?: string): JsonObject {
   const env = isObject(existing?.env) ? { ...existing.env } : {};
-  const key = resolveFactoryApiKey(dataDir, existing, setting);
-  if (key) env.FACTORY_API_KEY = key;
-  else delete env.FACTORY_API_KEY;
+  if (typeof setting === "string") {
+    if (setting.length > 0) env.FACTORY_API_KEY = setting;
+    else delete env.FACTORY_API_KEY;
+  }
   return env;
 }
 
@@ -172,7 +138,7 @@ function provision(dataDir: string, factoryApiKey?: string): { changed: boolean;
     displayName: PROFILE.displayName,
     command: binary,
     args: [...PROFILE.args],
-    env: managedEnv(dataDir, current, factoryApiKey),
+    env: managedEnv(current, factoryApiKey),
     logo: `logos/${PROFILE.id}.svg`,
     modelCli: {
       selectFlag: PROFILE.modelCli.selectFlag,
@@ -289,13 +255,19 @@ export default function plugin(bb: BbPluginApi) {
         const agents = Array.isArray(config.customAcpAgents) ? config.customAcpAgents as CustomAgent[] : [];
         const entry = agents.find((agent) => agent?.id === PROFILE.id);
         const binary = findBinary(entry);
-        const loginFile = hasFactoryLoginFile();
-        const apiKey = Boolean(resolveFactoryApiKey(root, entry));
+        const loginFile = existsSync(factoryAuthPath());
+        const { factoryApiKey } = await settings.get();
+        const apiKey = Boolean(factoryApiKey) || Boolean(envApiKey(entry?.env)) || Boolean(envApiKey(process.env));
         let registered = false;
         try {
           registered = (await bb.sdk.providers.list()).some((provider) => provider.id === PROFILE.providerId);
         } catch {}
         const ready = Boolean(binary && entry && registered && (apiKey || loginFile));
+        const hint = !ready
+          ? "Factory is not authenticated for ACP. Run `droid` to log in, or set the Factory API key plugin setting and `bb droid repair`."
+          : apiKey
+            ? null
+            : "Interactive droid login is present. If a thread fails with \"Internal error: Agent error\" or \"No active ACP session\", run `bb thread stop <id>` then `bb thread tell --mode auto <id> continue`.";
         return {
           exitCode: ready ? 0 : 1,
           stdout: [
@@ -304,15 +276,7 @@ export default function plugin(bb: BbPluginApi) {
             `bb provider ${PROFILE.providerId}: ${registered ? "registered" : "NOT registered"}`,
             `Factory login file: ${loginFile ? factoryAuthPath() : "MISSING"}`,
             `FACTORY_API_KEY: ${apiKey ? "set" : "not set"}`,
-            ...(ready
-              ? apiKey
-                ? []
-                : [
-                    "Interactive droid login is present. Long-lived ACP processes can still drop that token; recycle with `bb thread stop <id>` then `bb thread tell --mode auto <id> \"continue\"`.",
-                  ]
-              : [
-                  "Factory is not authenticated for ACP. Run `droid` to log in, or set FACTORY_API_KEY (plugin setting, ~/.bb/plugins/droid/.env, or the bb process environment) and `bb droid repair`.",
-                ]),
+            ...(hint ? [hint] : []),
           ].join("\n") + "\n",
         };
       }
