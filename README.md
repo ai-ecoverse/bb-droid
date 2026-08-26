@@ -1,116 +1,72 @@
 # bb-droid
 
-Register [Factory Droid](https://docs.factory.ai/cli/getting-started/overview) as a **bb custom ACP provider**.
+Adds Factory Droid to [bb](https://getbb.app) as an ACP coding-agent provider.
 
-bb speaks [Agent Client Protocol](https://agentclientprotocol.com) via `bb-acp-bridge`. Known agents (opencode, grok, hermes, …) auto-detect when on PATH. Droid is **not** in that list, so this repo ships a `customAcpAgents` entry for `~/.bb/config.json`.
-
-After install, Droid appears as provider **`acp-droid`**.
+After installation, **Factory Droid** appears in bb as provider **`acp-droid`**.
 
 ## Prerequisites
 
-1. **bb** desktop app running (host daemon co-located with the CLI).
-2. **Droid** on PATH (`curl -fsSL https://app.factory.ai/cli | sh` or your usual install).
-3. **Authenticated** with Factory (interactive login or `FACTORY_API_KEY`).
+- bb 0.39 or newer with its built-in ACP providers plugin enabled.
+- Install and authenticate the [Factory Droid CLI](https://docs.factory.ai/cli/getting-started/overview).
 
-Verify:
+## Install
+
+Until the marketplace entry is merged, install directly from GitHub:
 
 ```bash
-which droid
-droid --version
+bb plugin install https://github.com/ai-ecoverse/bb-droid
 ```
 
-## Install into bb
+For local development:
 
 ```bash
-./scripts/install.sh
+npm install
+npm run typecheck
+npm run build
+bb plugin install .
 ```
 
-Merges `config/custom-acp-agent.json` into `~/.bb/config.json` (by id `droid`), copies the logo, and reloads config when possible. Safe alongside other custom agents (e.g. `bb-auggie`).
+The plugin locates the CLI, writes or repairs its managed `customAcpAgents`
+entry without disturbing other agents, installs the approved monochrome icon,
+and reloads bb's configuration. It uses `droid exec --output-format acp` over stdio.
+
+## Check or repair
 
 ```bash
-bb provider list
+bb droid status
+bb droid repair
 bb provider models acp-droid
 ```
 
-Spawn:
-
-```bash
-bb thread spawn --project <project-id> \
-  --provider acp-droid --model acp-default \
-  --permission-mode full \
-  --prompt "Say hello"
-```
+If the CLI moves after an upgrade, `bb droid repair` records its new
+absolute path and reloads bb.
 
 ## Uninstall
 
-```bash
-./scripts/uninstall.sh
-```
-
-## Launch profile
-
-| Field | Value |
-|--------|--------|
-| Provider id | `acp-droid` |
-| Display name | Factory Droid |
-| Command | absolute path to `droid` (resolved at install) |
-| Args | `["exec", "--output-format", "acp"]` |
-| Models | usually `acp-default` (no scrapeable model list CLI) |
-
-### PATH gotcha
-
-bb’s host daemon often runs with a **minimal PATH**. If config uses bare `droid` and the binary lives in `~/.local/bin`, the agent can fail at `thread.start` with:
-
-```text
-ACP agent "droid" exited (code 0, signal null)
-```
-
-`scripts/install.sh` resolves `command -v droid` to an absolute path for this reason.
-
-Factory documents this shape for JetBrains/Zed ACP clients:
-
-```json
-{
-  "command": "droid",
-  "args": ["exec", "--output-format", "acp"]
-}
-```
-
-Source of truth: [`config/custom-acp-agent.json`](config/custom-acp-agent.json).
-
-### Notes
-
-- **Model list:** Droid has no scrapeable model-list CLI for bb’s bridge, so the picker usually shows **`acp-default`**. Pass `--model acp-default` when spawning until you set project defaults.
-- **Auth:** Factory login on the host, or set `FACTORY_API_KEY` in the agent `env` block (see Factory JetBrains/Zed docs).
-- **Permissions:** bb ACP modes are `accept-edits` and `full`.
-
-### Capabilities (bb ACP defaults)
-
-- Permission modes: `accept-edits`, `full`
-- No native fork / archive / rename
-- Agent owns tools
-
-## Manual config
-
-Append to `~/.bb/config.json` `customAcpAgents` (or merge with existing entries):
-
-```json
-{
-  "id": "droid",
-  "displayName": "Factory Droid",
-  "command": "droid",
-  "args": ["exec", "--output-format", "acp"]
-}
-```
-
-Then refresh:
+Remove the managed provider entry before removing the plugin:
 
 ```bash
-node /Applications/bb.app/Contents/Resources/app.asar.unpacked/node_modules/bb-app/dist/bb-app.js config refresh
+bb droid unregister
+bb plugin remove droid
 ```
 
-## Related
+The legacy `scripts/install.sh` and `scripts/uninstall.sh` remain available
+for installations made before this repository became a bb plugin.
 
-- Sibling: [`bb-auggie`](../bb-auggie) — Augment CLI via `auggie --acp`
-- Factory IDE integrations: https://docs.factory.ai/ide-integrations
-- `bb guide providers`
+## How it works
+
+bb's built-in ACP provider supplies the ACP-to-bb runtime. This plugin manages
+the provider-specific launch profile and branding in bb's data-directory
+configuration. Authentication and model availability remain owned by the
+vendor CLI and the user's account.
+
+The package ID is `droid`; the provider ID is `acp-droid`.
+
+## Development
+
+```bash
+npm run typecheck
+npm run build
+```
+
+The plugin requires bb 0.39+ and plugin SDK 0.4.8+.
