@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remove the droid customAcpAgents entry from ~/.bb/config.json.
+# Legacy uninstall for pre-plugin copies. Prefer `bb droid unregister`.
 set -euo pipefail
 
 BB_DATA_DIR="${BB_DATA_DIR:-$HOME/.bb}"

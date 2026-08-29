@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-droid",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Adds Factory Droid to bb as an ACP coding-agent provider.",
   "type": "module",
   "keywords": [
@@ -19,7 +19,7 @@
     "url": "git+https://github.com/ai-ecoverse/bb-droid.git"
   },
   "engines": {
-    "bb": ">=0.39",
+    "bb": ">=0.40",
     "bbPluginSdk": ">=0.4.8"
   },
   "bb": {

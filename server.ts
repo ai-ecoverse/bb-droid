@@ -3,7 +3,6 @@ import {
   accessSync,
   chmodSync,
   constants,
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -12,28 +11,21 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, delimiter, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { delimiter, dirname, join } from "node:path";
 
 const PROFILE = {
   id: "droid",
   providerId: "acp-droid",
   displayName: "Factory Droid",
   binary: "droid",
-  args: ["exec","--output-format","acp"],
-  modelCli: {
-    selectFlag: "--model",
-    primaryModels: ["claude-opus-4-8","claude-sonnet-4-6","gemini-2.5-pro","gpt-4.1"],
-  },
+  args: ["exec", "--output-format", "acp"],
   installHint: "Install and authenticate Factory Droid, then run `bb plugin reload droid`.",
 } as const;
 
+const ACP_PLUGIN_ID = "provider-acp";
+
 type JsonObject = Record<string, unknown>;
 type CustomAgent = JsonObject & { id?: unknown; command?: unknown; env?: unknown };
-
-const moduleDir = dirname(fileURLToPath(import.meta.url));
-const pluginRoot = basename(moduleDir) === "dist" ? dirname(moduleDir) : moduleDir;
-const logoSource = join(pluginRoot, "assets", "logo.svg");
 
 function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -92,15 +84,6 @@ function writeAtomic(path: string, value: JsonObject): void {
   }
 }
 
-function installLogo(dataDir: string): { path: string; changed: boolean } {
-  const destination = join(dataDir, "logos", `${PROFILE.id}.svg`);
-  mkdirSync(dirname(destination), { recursive: true });
-  const changed = !existsSync(destination)
-    || !readFileSync(destination).equals(readFileSync(logoSource));
-  if (changed) copyFileSync(logoSource, destination);
-  return { path: destination, changed };
-}
-
 function factoryAuthPath(): string {
   return join(homedir(), ".factory", "auth.v2.file");
 }
@@ -112,52 +95,59 @@ function envApiKey(env: unknown): string | undefined {
   return env.FACTORY_API_KEY;
 }
 
-function managedEnv(existing?: CustomAgent, setting?: string): JsonObject {
+function managedEnv(existing?: CustomAgent, setting?: string): JsonObject | undefined {
   const env = isObject(existing?.env) ? { ...existing.env } : {};
   if (typeof setting === "string") {
     if (setting.length > 0) env.FACTORY_API_KEY = setting;
     else delete env.FACTORY_API_KEY;
   }
-  return env;
+  return Object.keys(env).length > 0 ? env : undefined;
 }
 
-function provision(dataDir: string, factoryApiKey?: string): { changed: boolean; binary: string } {
-  const configPath = join(dataDir, "config.json");
-  const config = readConfig(configPath);
-  const agents = Array.isArray(config.customAcpAgents)
-    ? [...config.customAcpAgents] as CustomAgent[]
-    : [];
-  const index = agents.findIndex((agent) => agent?.id === PROFILE.id);
-  const current = index >= 0 ? agents[index] : undefined;
-  const binary = findBinary(current);
-  if (binary === null) throw new Error(`${PROFILE.binary} was not found. ${PROFILE.installHint}`);
+function parseCustomAgents(value: unknown): CustomAgent[] {
+  if (typeof value !== "string" || value.trim().length === 0) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error('ACP customAgents setting is not valid JSON; refusing to overwrite it');
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("ACP customAgents setting must be a JSON array; refusing to overwrite it");
+  }
+  return parsed as CustomAgent[];
+}
 
-  const managed: CustomAgent = {
-    ...current,
+function legacyAgents(dataDir: string): CustomAgent[] {
+  const agents = readConfig(join(dataDir, "config.json")).customAcpAgents;
+  return Array.isArray(agents) ? agents as CustomAgent[] : [];
+}
+
+function managedAgent(existing: CustomAgent | undefined, binary: string, factoryApiKey?: string): CustomAgent {
+  const env = managedEnv(existing, factoryApiKey);
+  const agent: CustomAgent = {
+    ...existing,
     id: PROFILE.id,
     displayName: PROFILE.displayName,
     command: binary,
     args: [...PROFILE.args],
-    env: managedEnv(current, factoryApiKey),
-    logo: `logos/${PROFILE.id}.svg`,
-    modelCli: {
-      selectFlag: PROFILE.modelCli.selectFlag,
-      primaryModels: [...PROFILE.modelCli.primaryModels],
-    },
   };
-  const before = JSON.stringify(agents);
-  if (index >= 0) agents[index] = managed;
-  else agents.push(managed);
-  const configChanged = JSON.stringify(agents) !== before;
-  const logo = installLogo(dataDir);
-  if (configChanged) {
-    config.customAcpAgents = agents;
-    writeAtomic(configPath, config);
+  delete agent.logo;
+  if (env) agent.env = env;
+  else delete agent.env;
+  // bb 0.40 requires modelCli.listArgs when modelCli is present. Droid has no
+  // list-models command; ACP session discovery supplies the catalog instead.
+  if (!isObject(agent.modelCli) || !Array.isArray(agent.modelCli.listArgs)) {
+    delete agent.modelCli;
   }
-  return { changed: configChanged || logo.changed, binary };
+  return agent;
 }
 
-function unregister(dataDir: string): boolean {
+function stringifyAgents(agents: CustomAgent[]): string {
+  return `${JSON.stringify(agents, null, 2)}\n`;
+}
+
+function removeLegacyEntry(dataDir: string): boolean {
   const configPath = join(dataDir, "config.json");
   const config = readConfig(configPath);
   if (!Array.isArray(config.customAcpAgents)) return false;
@@ -188,15 +178,45 @@ export default function plugin(bb: BbPluginApi) {
     return process.env.BB_DATA_DIR ?? join(homedir(), ".bb");
   }
 
-  async function reloadConfig(): Promise<void> {
-    await bb.sdk.system.reloadConfig();
+  async function readAcpAgents(): Promise<CustomAgent[]> {
+    const result = await bb.sdk.plugins.getSettings({ pluginId: ACP_PLUGIN_ID });
+    return parseCustomAgents(result.values.customAgents);
+  }
+
+  async function writeAcpAgents(agents: CustomAgent[]): Promise<void> {
+    await bb.sdk.plugins.updateSettings({
+      pluginId: ACP_PLUGIN_ID,
+      values: { customAgents: stringifyAgents(agents) },
+    });
   }
 
   async function repair(): Promise<{ changed: boolean; binary: string }> {
     const { factoryApiKey } = await settings.get();
-    const result = provision(await dataDir(), factoryApiKey);
-    if (result.changed) await reloadConfig();
-    return result;
+    const root = await dataDir();
+    const configured = await readAcpAgents();
+    const current = configured.find((agent) => agent?.id === PROFILE.id)
+      ?? legacyAgents(root).find((agent) => agent?.id === PROFILE.id);
+    const binary = findBinary(current);
+    if (binary === null) throw new Error(`${PROFILE.binary} was not found. ${PROFILE.installHint}`);
+
+    const managed = managedAgent(current, binary, factoryApiKey);
+    const next = configured.filter((agent) => agent?.id !== PROFILE.id);
+    next.push(managed);
+    const agentsChanged = stringifyAgents(configured) !== stringifyAgents(next);
+    const legacyChanged = removeLegacyEntry(root);
+    if (agentsChanged) await writeAcpAgents(next);
+    else if (legacyChanged) await bb.sdk.plugins.reload({ pluginId: ACP_PLUGIN_ID });
+    return { changed: agentsChanged || legacyChanged, binary };
+  }
+
+  async function unregister(): Promise<boolean> {
+    const configured = await readAcpAgents();
+    const next = configured.filter((agent) => agent?.id !== PROFILE.id);
+    const agentsChanged = next.length !== configured.length;
+    const legacyChanged = removeLegacyEntry(await dataDir());
+    if (agentsChanged) await writeAcpAgents(next);
+    else if (legacyChanged) await bb.sdk.plugins.reload({ pluginId: ACP_PLUGIN_ID });
+    return agentsChanged || legacyChanged;
   }
 
   settings.onChange(() => {
@@ -242,22 +262,25 @@ export default function plugin(bb: BbPluginApi) {
       }
       if (command === "unregister") {
         try {
-          const changed = unregister(await dataDir());
-          if (changed) await reloadConfig();
+          const changed = await unregister();
           return { exitCode: 0, stdout: `${PROFILE.providerId}: ${changed ? "unregistered" : "not configured"}\n` };
         } catch (error) {
           return { exitCode: 1, stderr: `${String(error)}\n` };
         }
       }
       if (command === "status") {
-        const root = await dataDir();
-        const config = readConfig(join(root, "config.json"));
-        const agents = Array.isArray(config.customAcpAgents) ? config.customAcpAgents as CustomAgent[] : [];
-        const entry = agents.find((agent) => agent?.id === PROFILE.id);
-        const binary = findBinary(entry);
+        let configured: CustomAgent[] = [];
+        try {
+          configured = await readAcpAgents();
+        } catch (error) {
+          return { exitCode: 1, stderr: `${String(error)}\n` };
+        }
+        const entry = configured.find((agent) => agent?.id === PROFILE.id);
+        const legacy = legacyAgents(await dataDir()).find((agent) => agent?.id === PROFILE.id);
+        const binary = findBinary(entry ?? legacy);
         const loginFile = existsSync(factoryAuthPath());
         const { factoryApiKey } = await settings.get();
-        const apiKey = Boolean(factoryApiKey) || Boolean(envApiKey(entry?.env)) || Boolean(envApiKey(process.env));
+        const apiKey = Boolean(factoryApiKey) || Boolean(envApiKey(entry?.env)) || Boolean(envApiKey(legacy?.env)) || Boolean(envApiKey(process.env));
         let registered = false;
         try {
           registered = (await bb.sdk.providers.list()).some((provider) => provider.id === PROFILE.providerId);
@@ -272,7 +295,8 @@ export default function plugin(bb: BbPluginApi) {
           exitCode: ready ? 0 : 1,
           stdout: [
             `CLI: ${binary ?? "NOT FOUND"}`,
-            `config entry: ${entry ? "present" : "missing"}`,
+            `ACP customAgents entry: ${entry ? "present" : "missing"}`,
+            `legacy config.json entry: ${legacy ? "present (run bb droid repair)" : "absent"}`,
             `bb provider ${PROFILE.providerId}: ${registered ? "registered" : "NOT registered"}`,
             `Factory login file: ${loginFile ? factoryAuthPath() : "MISSING"}`,
             `FACTORY_API_KEY: ${apiKey ? "set" : "not set"}`,

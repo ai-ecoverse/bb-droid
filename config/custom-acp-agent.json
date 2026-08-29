@@ -3,14 +3,5 @@
   "displayName": "Factory Droid",
   "command": "droid",
   "args": ["exec", "--output-format", "acp"],
-  "env": {},
-  "modelCli": {
-    "selectFlag": "--model",
-    "primaryModels": [
-      "claude-opus-4-8",
-      "claude-sonnet-4-6",
-      "gemini-2.5-pro",
-      "gpt-4.1"
-    ]
-  }
+  "env": {}
 }

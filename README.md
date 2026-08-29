@@ -6,7 +6,7 @@ After installation, **Factory Droid** appears in bb as provider **`acp-droid`**.
 
 ## Prerequisites
 
-- bb 0.39 or newer with its built-in ACP providers plugin enabled.
+- bb 0.40 or newer with its built-in ACP providers plugin enabled.
 - Install and authenticate the [Factory Droid CLI](https://docs.factory.ai/cli/getting-started/overview).
 
 ## Install
@@ -26,9 +26,11 @@ npm run build
 bb plugin install .
 ```
 
-The plugin locates the CLI, writes or repairs its managed `customAcpAgents`
-entry without disturbing other agents, installs the approved monochrome icon,
-and reloads bb's configuration. It uses `droid exec --output-format acp` over stdio.
+The plugin locates the CLI and upserts a managed entry in the ACP providers
+plugin's `customAgents` setting without disturbing other agents. It uses
+`droid exec --output-format acp` over stdio. A leftover `customAcpAgents`
+entry in `config.json` is removed on repair, because bb 0.40 rejects that
+shape unless `modelCli.listArgs` is present and 0.41 stops reading it.
 
 ACP uses the interactive `droid` login when it is valid. Long-lived ACP
 children can still drop that token. For a durable credential, set a
@@ -80,9 +82,9 @@ for installations made before this repository became a bb plugin.
 ## How it works
 
 bb's built-in ACP provider supplies the ACP-to-bb runtime. This plugin manages
-the provider-specific launch profile and branding in bb's data-directory
-configuration. Authentication and model availability remain owned by the
-vendor CLI and the user's account.
+the provider-specific launch profile through that plugin's `customAgents`
+setting. Authentication and model availability remain owned by the vendor CLI
+and the user's account.
 
 The package ID is `droid`; the provider ID is `acp-droid`.
 
@@ -93,4 +95,4 @@ npm run typecheck
 npm run build
 ```
 
-The plugin requires bb 0.39+ and plugin SDK 0.4.8+.
+The plugin requires bb 0.40+ and plugin SDK 0.4.8+.

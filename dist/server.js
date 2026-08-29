@@ -10,7 +10,6 @@ import {
   accessSync,
   chmodSync,
   constants,
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -19,23 +18,16 @@ import {
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, delimiter, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { delimiter, dirname, join } from "node:path";
 var PROFILE = {
   id: "droid",
   providerId: "acp-droid",
   displayName: "Factory Droid",
   binary: "droid",
   args: ["exec", "--output-format", "acp"],
-  modelCli: {
-    selectFlag: "--model",
-    primaryModels: ["claude-opus-4-8", "claude-sonnet-4-6", "gemini-2.5-pro", "gpt-4.1"]
-  },
   installHint: "Install and authenticate Factory Droid, then run `bb plugin reload droid`."
 };
-var moduleDir = dirname(fileURLToPath(import.meta.url));
-var pluginRoot = basename(moduleDir) === "dist" ? dirname(moduleDir) : moduleDir;
-var logoSource = join(pluginRoot, "assets", "logo.svg");
+var ACP_PLUGIN_ID = "provider-acp";
 function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -87,13 +79,6 @@ function writeAtomic(path, value) {
     rmSync(temporary, { force: true });
   }
 }
-function installLogo(dataDir) {
-  const destination = join(dataDir, "logos", `${PROFILE.id}.svg`);
-  mkdirSync(dirname(destination), { recursive: true });
-  const changed = !existsSync(destination) || !readFileSync(destination).equals(readFileSync(logoSource));
-  if (changed) copyFileSync(logoSource, destination);
-  return { path: destination, changed };
-}
 function factoryAuthPath() {
   return join(homedir(), ".factory", "auth.v2.file");
 }
@@ -109,41 +94,47 @@ function managedEnv(existing, setting) {
     if (setting.length > 0) env.FACTORY_API_KEY = setting;
     else delete env.FACTORY_API_KEY;
   }
-  return env;
+  return Object.keys(env).length > 0 ? env : void 0;
 }
-function provision(dataDir, factoryApiKey) {
-  const configPath = join(dataDir, "config.json");
-  const config = readConfig(configPath);
-  const agents = Array.isArray(config.customAcpAgents) ? [...config.customAcpAgents] : [];
-  const index = agents.findIndex((agent) => agent?.id === PROFILE.id);
-  const current = index >= 0 ? agents[index] : void 0;
-  const binary = findBinary(current);
-  if (binary === null) throw new Error(`${PROFILE.binary} was not found. ${PROFILE.installHint}`);
-  const managed = {
-    ...current,
+function parseCustomAgents(value) {
+  if (typeof value !== "string" || value.trim().length === 0) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("ACP customAgents setting is not valid JSON; refusing to overwrite it");
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("ACP customAgents setting must be a JSON array; refusing to overwrite it");
+  }
+  return parsed;
+}
+function legacyAgents(dataDir) {
+  const agents = readConfig(join(dataDir, "config.json")).customAcpAgents;
+  return Array.isArray(agents) ? agents : [];
+}
+function managedAgent(existing, binary, factoryApiKey) {
+  const env = managedEnv(existing, factoryApiKey);
+  const agent = {
+    ...existing,
     id: PROFILE.id,
     displayName: PROFILE.displayName,
     command: binary,
-    args: [...PROFILE.args],
-    env: managedEnv(current, factoryApiKey),
-    logo: `logos/${PROFILE.id}.svg`,
-    modelCli: {
-      selectFlag: PROFILE.modelCli.selectFlag,
-      primaryModels: [...PROFILE.modelCli.primaryModels]
-    }
+    args: [...PROFILE.args]
   };
-  const before = JSON.stringify(agents);
-  if (index >= 0) agents[index] = managed;
-  else agents.push(managed);
-  const configChanged = JSON.stringify(agents) !== before;
-  const logo = installLogo(dataDir);
-  if (configChanged) {
-    config.customAcpAgents = agents;
-    writeAtomic(configPath, config);
+  delete agent.logo;
+  if (env) agent.env = env;
+  else delete agent.env;
+  if (!isObject(agent.modelCli) || !Array.isArray(agent.modelCli.listArgs)) {
+    delete agent.modelCli;
   }
-  return { changed: configChanged || logo.changed, binary };
+  return agent;
 }
-function unregister(dataDir) {
+function stringifyAgents(agents) {
+  return `${JSON.stringify(agents, null, 2)}
+`;
+}
+function removeLegacyEntry(dataDir) {
   const configPath = join(dataDir, "config.json");
   const config = readConfig(configPath);
   if (!Array.isArray(config.customAcpAgents)) return false;
@@ -171,14 +162,40 @@ function plugin(bb) {
     }
     return process.env.BB_DATA_DIR ?? join(homedir(), ".bb");
   }
-  async function reloadConfig() {
-    await bb.sdk.system.reloadConfig();
+  async function readAcpAgents() {
+    const result = await bb.sdk.plugins.getSettings({ pluginId: ACP_PLUGIN_ID });
+    return parseCustomAgents(result.values.customAgents);
+  }
+  async function writeAcpAgents(agents) {
+    await bb.sdk.plugins.updateSettings({
+      pluginId: ACP_PLUGIN_ID,
+      values: { customAgents: stringifyAgents(agents) }
+    });
   }
   async function repair() {
     const { factoryApiKey } = await settings.get();
-    const result = provision(await dataDir(), factoryApiKey);
-    if (result.changed) await reloadConfig();
-    return result;
+    const root = await dataDir();
+    const configured = await readAcpAgents();
+    const current = configured.find((agent) => agent?.id === PROFILE.id) ?? legacyAgents(root).find((agent) => agent?.id === PROFILE.id);
+    const binary = findBinary(current);
+    if (binary === null) throw new Error(`${PROFILE.binary} was not found. ${PROFILE.installHint}`);
+    const managed = managedAgent(current, binary, factoryApiKey);
+    const next = configured.filter((agent) => agent?.id !== PROFILE.id);
+    next.push(managed);
+    const agentsChanged = stringifyAgents(configured) !== stringifyAgents(next);
+    const legacyChanged = removeLegacyEntry(root);
+    if (agentsChanged) await writeAcpAgents(next);
+    else if (legacyChanged) await bb.sdk.plugins.reload({ pluginId: ACP_PLUGIN_ID });
+    return { changed: agentsChanged || legacyChanged, binary };
+  }
+  async function unregister() {
+    const configured = await readAcpAgents();
+    const next = configured.filter((agent) => agent?.id !== PROFILE.id);
+    const agentsChanged = next.length !== configured.length;
+    const legacyChanged = removeLegacyEntry(await dataDir());
+    if (agentsChanged) await writeAcpAgents(next);
+    else if (legacyChanged) await bb.sdk.plugins.reload({ pluginId: ACP_PLUGIN_ID });
+    return agentsChanged || legacyChanged;
   }
   settings.onChange(() => {
     void repair().catch((error) => {
@@ -222,8 +239,7 @@ CLI: ${result.binary}
       }
       if (command === "unregister") {
         try {
-          const changed = unregister(await dataDir());
-          if (changed) await reloadConfig();
+          const changed = await unregister();
           return { exitCode: 0, stdout: `${PROFILE.providerId}: ${changed ? "unregistered" : "not configured"}
 ` };
         } catch (error) {
@@ -232,14 +248,19 @@ CLI: ${result.binary}
         }
       }
       if (command === "status") {
-        const root = await dataDir();
-        const config = readConfig(join(root, "config.json"));
-        const agents = Array.isArray(config.customAcpAgents) ? config.customAcpAgents : [];
-        const entry = agents.find((agent) => agent?.id === PROFILE.id);
-        const binary = findBinary(entry);
+        let configured = [];
+        try {
+          configured = await readAcpAgents();
+        } catch (error) {
+          return { exitCode: 1, stderr: `${String(error)}
+` };
+        }
+        const entry = configured.find((agent) => agent?.id === PROFILE.id);
+        const legacy = legacyAgents(await dataDir()).find((agent) => agent?.id === PROFILE.id);
+        const binary = findBinary(entry ?? legacy);
         const loginFile = existsSync(factoryAuthPath());
         const { factoryApiKey } = await settings.get();
-        const apiKey = Boolean(factoryApiKey) || Boolean(envApiKey(entry?.env)) || Boolean(envApiKey(process.env));
+        const apiKey = Boolean(factoryApiKey) || Boolean(envApiKey(entry?.env)) || Boolean(envApiKey(legacy?.env)) || Boolean(envApiKey(process.env));
         let registered = false;
         try {
           registered = (await bb.sdk.providers.list()).some((provider) => provider.id === PROFILE.providerId);
@@ -251,7 +272,8 @@ CLI: ${result.binary}
           exitCode: ready ? 0 : 1,
           stdout: [
             `CLI: ${binary ?? "NOT FOUND"}`,
-            `config entry: ${entry ? "present" : "missing"}`,
+            `ACP customAgents entry: ${entry ? "present" : "missing"}`,
+            `legacy config.json entry: ${legacy ? "present (run bb droid repair)" : "absent"}`,
             `bb provider ${PROFILE.providerId}: ${registered ? "registered" : "NOT registered"}`,
             `Factory login file: ${loginFile ? factoryAuthPath() : "MISSING"}`,
             `FACTORY_API_KEY: ${apiKey ? "set" : "not set"}`,

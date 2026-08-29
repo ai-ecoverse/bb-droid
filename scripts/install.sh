@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Merge bb-droid into ~/.bb/config.json customAcpAgents and install logo.
+# Legacy installer for pre-plugin copies. Prefer `bb plugin install .`.
+# On bb 0.40+, the plugin writes ACP `customAgents` instead of config.json.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
