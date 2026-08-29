@@ -86,7 +86,8 @@ the provider-specific launch profile through that plugin's `customAgents`
 setting. Authentication and model availability remain owned by the vendor CLI
 and the user's account.
 
-The package ID is `droid`; the provider ID is `acp-droid`.
+The package ID is `droid`; the provider ID is `acp-droid`. The compact icon
+is a `currentColor` mask so it follows the bb theme.
 
 ## Development
 
