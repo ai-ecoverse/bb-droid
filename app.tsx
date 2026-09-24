@@ -15,5 +15,5 @@ function DroidIcon({ className }: { className?: string }) {
 }
 
 export default definePluginApp((app) => {
-  app.slots.experimental_providerIcon({ providerId: "acp-droid", icon: DroidIcon });
+  app.slots.experimental_providerIcon({ providerKind: "agent", providerId: "acp-droid", icon: DroidIcon });
 });
