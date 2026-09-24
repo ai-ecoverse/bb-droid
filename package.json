@@ -39,11 +39,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "zod": "^4.3.6"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@get-bb/plugin-sdk": "0.4.21",
-    "@pierre/diffs": "^1.2.9",
+    "@get-bb/plugin-sdk": "0.5.24",
+    "@pierre/diffs": "^1.4.3",
     "@radix-ui/react-alert-dialog": "^1.1.19",
     "@radix-ui/react-context-menu": "^2.3.3",
     "@radix-ui/react-dialog": "^1.1.19",
@@ -55,16 +55,16 @@
     "@radix-ui/react-select": "^2.3.3",
     "@radix-ui/react-tooltip": "^1.2.12",
     "@types/better-sqlite3": "^7.6.12",
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.0.0",
-    "better-sqlite3": "^12.0.0",
+    "@types/node": "^26.6.2",
+    "@types/react": "^19.3.0",
+    "better-sqlite3": "^13.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "hono": "^4.11.9",
-    "sonner": "^1.7.4",
-    "tailwind-merge": "^3.4.0",
-    "typescript": "^5.7.0",
+    "hono": "^4.13.9",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^3.7.0",
+    "typescript": "^7.0.2",
     "vaul": "^1.1.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   }
 }
