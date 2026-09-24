@@ -33,7 +33,13 @@ describe("managedAgent", () => {
         workspaceWrite: ["--auto", "low"],
         insertAfterArgs: 1,
       },
+      nativeReasoning: {
+        configId: "reasoning_effort",
+        supportedLevels: ["none", "low", "medium", "high", "xhigh", "max"],
+        defaultLevel: "medium",
+      },
     });
+    expect(agent.reasoningCli).toBeUndefined();
     expect(agent.env).toBeUndefined();
     expect(agent.supportsManualCompaction).toBeUndefined();
   });
@@ -47,12 +53,22 @@ describe("managedAgent", () => {
       cwd: "/tmp/workspace",
       dialect: "cursor",
       modelCli: { listArgs: ["models"], selectFlag: "--model" },
+      reasoningCli: {
+        flag: "--thinking",
+        supportedLevels: ["low"],
+      },
     };
     const agent = managedAgent(BINARY, existing);
     expect(agent.cwd).toBe("/tmp/workspace");
     expect(agent.dialect).toBe("cursor");
     expect(agent.env).toEqual({ DROID_HOME: "/tmp/droid" });
     expect(agent.modelCli).toEqual({ listArgs: ["models"], selectFlag: "--model" });
+    expect(agent.reasoningCli).toBeUndefined();
+    expect(agent.nativeReasoning).toEqual({
+      configId: "reasoning_effort",
+      supportedLevels: ["none", "low", "medium", "high", "xhigh", "max"],
+      defaultLevel: "medium",
+    });
     expect(agent.args).toEqual(["exec", "--output-format", "acp"]);
     expect(agent.command).toBe(BINARY);
   });
