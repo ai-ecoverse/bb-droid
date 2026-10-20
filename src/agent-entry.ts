@@ -27,6 +27,14 @@ export const PROFILE = {
     workspaceWrite: ["--auto", "low"],
     insertAfterArgs: 1,
   },
+  // Droid's ACP session exposes a `reasoning_effort` select (category
+  // thought_level), so bb sets effort over ACP. A launch flag would not work:
+  // bb puts reasoning flags before `exec`, where Droid starts its TUI instead.
+  nativeReasoning: {
+    configId: "reasoning_effort",
+    supportedLevels: ["none", "low", "medium", "high", "xhigh", "max"],
+    defaultLevel: "medium",
+  },
   installHint: "Install and authenticate Factory Droid, then run `bb plugin reload droid`.",
 } as const;
 
@@ -88,8 +96,16 @@ export function managedAgent(binary: string, existing?: CustomAgent, factoryApiK
       workspaceWrite: [...PROFILE.permissionCli.workspaceWrite],
       insertAfterArgs: PROFILE.permissionCli.insertAfterArgs,
     },
+    nativeReasoning: {
+      configId: PROFILE.nativeReasoning.configId,
+      supportedLevels: [...PROFILE.nativeReasoning.supportedLevels],
+      defaultLevel: PROFILE.nativeReasoning.defaultLevel,
+    },
   };
   delete agent.logo;
+  // bb prefers reasoningCli over nativeReasoning and prepends its flag before
+  // `exec`, which launches Droid's TUI and breaks the ACP session.
+  delete agent.reasoningCli;
   if (env) agent.env = env;
   else delete agent.env;
   // bb 0.40 requires modelCli.listArgs when modelCli is present. Droid has no
