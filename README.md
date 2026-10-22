@@ -27,8 +27,10 @@ npm test
 bb plugin install .
 ```
 
-The plugin locates the CLI and upserts a managed entry in the ACP providers
-plugin's `customAgents` setting without disturbing other agents. It uses
+The plugin locates the CLI and upserts a managed entry in the running ACP
+adapter's `customAgents` setting without disturbing other agents. That is
+bb's rebuilt adapter (`bb--provider-acp-next`, "ACP providers [New adapter]")
+when it is enabled, and the built-in `provider-acp` otherwise. It uses
 `droid exec --output-format acp` over stdio. A leftover `customAcpAgents`
 entry in `config.json` is removed on repair, because bb 0.40 rejects that
 shape unless `modelCli.listArgs` is present and 0.41 stops reading it.
@@ -115,7 +117,11 @@ deletes the legacy one.
 
 bb's built-in ACP provider supplies the ACP-to-bb runtime. This plugin manages
 the provider-specific launch profile through that plugin's `customAgents`
-setting. Authentication and model availability remain owned by the vendor CLI
+setting. bb's rebuilt ACP adapter is an opt-in preview that disables
+`provider-acp` when enabled, so the plugin writes to whichever of the two is
+running; `bb droid status` names it. Under the rebuilt adapter, Droid's
+`AskUser` tool works: that adapter accepts ACP form elicitations, which
+`provider-acp` declines, so Droid cancels its own questions there. Authentication and model availability remain owned by the vendor CLI
 and the user's account.
 
 The package ID is `droid`; the provider ID is `acp-droid`. The compact icon

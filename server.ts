@@ -13,18 +13,19 @@ import {
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import {
-  ACP_PLUGIN_ID,
   PROFILE,
   findOwnAgent,
   isObject,
   isOwnAgent,
   managedAgent,
-  parseCustomAgents,
+  readActiveAcpSetting,
   removeAgent,
   stringifyCustomAgents,
   upsertAgent,
+  type AcpPluginId,
   type CustomAgent,
   type JsonObject,
+  type SettingAgents,
 } from "./src/agent-entry.js";
 
 const SETTINGS_READY_ATTEMPTS = 10;
@@ -129,25 +130,21 @@ export default function plugin(bb: BbPluginApi) {
     return process.env.BB_DATA_DIR ?? join(homedir(), ".bb");
   }
 
-  async function readSettingAgents(): Promise<CustomAgent[] | null> {
-    let values: Record<string, unknown>;
-    try {
-      const result = await bb.sdk.plugins.getSettings({ pluginId: ACP_PLUGIN_ID });
-      values = result.values;
-    } catch (error) {
-      // 404 here means the ACP plugin's factory has not run yet — not a malformed
-      // setting. Parse errors below are thrown, so we never clobber a bad value.
-      bb.log.warn(`Could not read ${ACP_PLUGIN_ID} customAgents: ${String(error)}`);
-      return null;
+  async function readSettingAgents(): Promise<SettingAgents | null> {
+    const { setting, failures } = await readActiveAcpSetting(
+      async (pluginId) => (await bb.sdk.plugins.getSettings({ pluginId })).values,
+    );
+    if (setting === null) {
+      bb.log.warn(`Could not read ACP customAgents from any adapter: ${failures.join("; ")}`);
     }
-    return parseCustomAgents(values.customAgents);
+    return setting;
   }
 
   // At startup the settings read can lose the race with the ACP plugin's own
   // factory and answer 404. Falling back to the deprecated config.json array on
   // that answer would write legacy config on every fresh install, so wait for
   // the plugin to come up before deciding it is unavailable.
-  async function readSettingAgentsWhenReady(): Promise<CustomAgent[] | null> {
+  async function readSettingAgentsWhenReady(): Promise<SettingAgents | null> {
     for (let attempt = 0; attempt < SETTINGS_READY_ATTEMPTS; attempt += 1) {
       const agents = await readSettingAgents();
       if (agents !== null) return agents;
@@ -156,10 +153,10 @@ export default function plugin(bb: BbPluginApi) {
     return readSettingAgents();
   }
 
-  async function writeSettingAgents(agents: CustomAgent[]): Promise<boolean> {
+  async function writeSettingAgents(pluginId: AcpPluginId, agents: CustomAgent[]): Promise<boolean> {
     const serialized = agents.length === 0 ? "" : stringifyCustomAgents(agents);
     await bb.sdk.plugins.updateSettings({
-      pluginId: ACP_PLUGIN_ID,
+      pluginId,
       values: { customAgents: serialized },
     });
     return true;
@@ -168,9 +165,9 @@ export default function plugin(bb: BbPluginApi) {
   async function provision(waitForSettings = false): Promise<{ changed: boolean; binary: string }> {
     const { factoryApiKey } = await settings.get();
     const root = await dataDir();
-    const settingAgents = waitForSettings ? await readSettingAgentsWhenReady() : await readSettingAgents();
+    const setting = waitForSettings ? await readSettingAgentsWhenReady() : await readSettingAgents();
     const legacyAgents = readLegacyAgents(root);
-    const existing = (settingAgents === null ? undefined : findOwnAgent(settingAgents))
+    const existing = (setting === null ? undefined : findOwnAgent(setting.agents))
       ?? findOwnAgent(legacyAgents);
     const binary = findBinary(existing);
     if (binary === null) throw new Error(`${PROFILE.binary} was not found. ${PROFILE.installHint}`);
@@ -178,10 +175,10 @@ export default function plugin(bb: BbPluginApi) {
     const managed = managedAgent(binary, existing, factoryApiKey);
     let changed = false;
 
-    if (settingAgents !== null) {
-      const next = upsertAgent(settingAgents, managed);
+    if (setting !== null) {
+      const next = upsertAgent(setting.agents, managed);
       if (next.changed) {
-        await writeSettingAgents(next.agents);
+        await writeSettingAgents(setting.pluginId, next.agents);
         changed = true;
       }
     } else {
@@ -204,11 +201,11 @@ export default function plugin(bb: BbPluginApi) {
   async function unregister(): Promise<boolean> {
     const root = await dataDir();
     let changed = false;
-    const settingAgents = await readSettingAgents();
-    if (settingAgents !== null) {
-      const next = removeAgent(settingAgents);
+    const setting = await readSettingAgents();
+    if (setting !== null) {
+      const next = removeAgent(setting.agents);
       if (next.changed) {
-        await writeSettingAgents(next.agents);
+        await writeSettingAgents(setting.pluginId, next.agents);
         changed = true;
       }
     }
@@ -271,14 +268,14 @@ export default function plugin(bb: BbPluginApi) {
       }
       if (command === "status") {
         const root = await dataDir();
-        let settingAgents: CustomAgent[] | null = null;
+        let setting: SettingAgents | null = null;
         try {
-          settingAgents = await readSettingAgents();
+          setting = await readSettingAgents();
         } catch (error) {
           return { exitCode: 1, stderr: `${String(error)}\n` };
         }
         const legacyAgents = readLegacyAgents(root);
-        const entry = (settingAgents === null ? undefined : findOwnAgent(settingAgents))
+        const entry = (setting === null ? undefined : findOwnAgent(setting.agents))
           ?? findOwnAgent(legacyAgents);
         const binary = findBinary(entry);
         const loginFile = existsSync(factoryAuthPath());
@@ -288,7 +285,9 @@ export default function plugin(bb: BbPluginApi) {
         try {
           registered = (await bb.sdk.providers.list()).some((provider) => provider.id === PROFILE.providerId);
         } catch {}
-        const setting = settingAgents?.some(isOwnAgent) ? "present" : "missing";
+        const settingEntry = setting === null
+          ? "no running ACP adapter"
+          : `${setting.agents.some(isOwnAgent) ? "present" : "missing"} (${setting.pluginId})`;
         const legacy = legacyAgents.some(isOwnAgent) ? "present" : "absent";
         const ready = Boolean(binary && entry && registered && (apiKey || loginFile));
         const hint = !ready
@@ -300,7 +299,7 @@ export default function plugin(bb: BbPluginApi) {
           exitCode: ready ? 0 : 1,
           stdout: [
             `CLI: ${binary ?? "NOT FOUND"}`,
-            `ACP customAgents entry: ${setting}`,
+            `ACP customAgents entry: ${settingEntry}`,
             `legacy config.json entry: ${legacy}`,
             `bb provider ${PROFILE.providerId}: ${registered ? "registered" : "NOT registered"}`,
             `Factory login file: ${loginFile ? factoryAuthPath() : "MISSING"}`,
