@@ -1,6 +1,6 @@
 {
   "name": "bb-plugin-droid",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Adds Factory Droid to bb as an ACP coding-agent provider.",
   "license": "MIT",
   "type": "module",
