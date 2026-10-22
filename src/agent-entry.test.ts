@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACP_PLUGIN_IDS,
   PROFILE,
   findOwnAgent,
   managedAgent,
   parseCustomAgents,
+  readActiveAcpSetting,
   removeAgent,
   stringifyCustomAgents,
   upsertAgent,
@@ -189,5 +191,56 @@ describe("parseCustomAgents", () => {
     expect(() => parseCustomAgents('{"id":"droid"}')).toThrow(/JSON array/);
     expect(() => parseCustomAgents(["already parsed"])).toThrow(/must be a string/);
     expect(() => parseCustomAgents("[not json")).toThrow();
+  });
+
+  it("names the adapter whose setting is malformed", () => {
+    expect(() => parseCustomAgents('{"id":"droid"}', "bb--provider-acp-next")).toThrow(
+      /^bb--provider-acp-next customAgents must be a JSON array/,
+    );
+  });
+});
+
+describe("readActiveAcpSetting", () => {
+  const droid = managedAgent(BINARY);
+  const notRunning = () => Promise.reject(new Error("HTTP 404: unknown plugin, or plugin is not running"));
+
+  it("tries the rebuilt adapter before provider-acp", () => {
+    expect(ACP_PLUGIN_IDS).toEqual(["bb--provider-acp-next", "provider-acp"]);
+  });
+
+  it("uses the rebuilt adapter when it is running", async () => {
+    const asked: string[] = [];
+    const result = await readActiveAcpSetting(async (pluginId) => {
+      asked.push(pluginId);
+      return { customAgents: stringifyCustomAgents([droid]) };
+    });
+    expect(asked).toEqual(["bb--provider-acp-next"]);
+    expect(result.setting).toEqual({ pluginId: "bb--provider-acp-next", agents: [droid] });
+  });
+
+  it("falls back to provider-acp when the rebuilt adapter is disabled", async () => {
+    const result = await readActiveAcpSetting((pluginId) =>
+      pluginId === "provider-acp" ? Promise.resolve({ customAgents: "" }) : notRunning(),
+    );
+    expect(result.setting).toEqual({ pluginId: "provider-acp", agents: [] });
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0]).toMatch(/^bb--provider-acp-next: /);
+  });
+
+  it("returns null with every failure when no adapter is running", async () => {
+    const result = await readActiveAcpSetting(notRunning);
+    expect(result.setting).toBeNull();
+    expect(result.failures.map((failure) => failure.split(":")[0])).toEqual([...ACP_PLUGIN_IDS]);
+  });
+
+  it("throws on a malformed setting instead of trying the next adapter", async () => {
+    const asked: string[] = [];
+    await expect(
+      readActiveAcpSetting(async (pluginId) => {
+        asked.push(pluginId);
+        return { customAgents: '{"id":"droid"}' };
+      }),
+    ).rejects.toThrow(/^bb--provider-acp-next customAgents must be a JSON array/);
+    expect(asked).toEqual(["bb--provider-acp-next"]);
   });
 });

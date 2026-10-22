@@ -1,7 +1,11 @@
 export type JsonObject = Record<string, unknown>;
 export type CustomAgent = JsonObject & { id?: unknown; command?: unknown; env?: unknown };
 
-export const ACP_PLUGIN_ID = "provider-acp";
+// The ACP adapters whose `customAgents` setting can carry Droid. bb ships the
+// rebuilt adapter as an opt-in preview; enabling it disables `provider-acp`,
+// so at most one of these answers a settings read at a time.
+export const ACP_PLUGIN_IDS = ["bb--provider-acp-next", "provider-acp"] as const;
+export type AcpPluginId = (typeof ACP_PLUGIN_IDS)[number];
 
 export const PROFILE = {
   id: "droid",
@@ -50,18 +54,40 @@ export function findOwnAgent(agents: CustomAgent[]): CustomAgent | undefined {
   return agents.find(isOwnAgent);
 }
 
-export function parseCustomAgents(value: unknown): CustomAgent[] {
+export function parseCustomAgents(value: unknown, pluginId: AcpPluginId = "provider-acp"): CustomAgent[] {
   if (value === undefined || value === null || value === "") return [];
   if (typeof value !== "string") {
-    throw new Error(`${ACP_PLUGIN_ID} customAgents must be a string`);
+    throw new Error(`${pluginId} customAgents must be a string`);
   }
   const trimmed = value.trim();
   if (trimmed.length === 0) return [];
   const parsed: unknown = JSON.parse(trimmed);
   if (!Array.isArray(parsed)) {
-    throw new Error(`${ACP_PLUGIN_ID} customAgents must be a JSON array; refusing to overwrite it`);
+    throw new Error(`${pluginId} customAgents must be a JSON array; refusing to overwrite it`);
   }
   return parsed as CustomAgent[];
+}
+
+export type SettingAgents = { pluginId: AcpPluginId; agents: CustomAgent[] };
+
+// Returns the `customAgents` of the first ACP adapter that answers. A failed
+// read means that adapter is disabled or not up yet, so the next one is
+// tried; a malformed setting throws instead, so it is never overwritten.
+export async function readActiveAcpSetting(
+  getSettings: (pluginId: AcpPluginId) => Promise<Record<string, unknown>>,
+): Promise<{ setting: SettingAgents | null; failures: string[] }> {
+  const failures: string[] = [];
+  for (const pluginId of ACP_PLUGIN_IDS) {
+    let values: Record<string, unknown>;
+    try {
+      values = await getSettings(pluginId);
+    } catch (error) {
+      failures.push(`${pluginId}: ${String(error)}`);
+      continue;
+    }
+    return { setting: { pluginId, agents: parseCustomAgents(values.customAgents, pluginId) }, failures };
+  }
+  return { setting: null, failures };
 }
 
 export function stringifyCustomAgents(agents: CustomAgent[]): string {
