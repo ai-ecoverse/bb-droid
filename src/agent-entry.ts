@@ -61,7 +61,12 @@ export function parseCustomAgents(value: unknown, pluginId: AcpPluginId = "provi
   }
   const trimmed = value.trim();
   if (trimmed.length === 0) return [];
-  const parsed: unknown = JSON.parse(trimmed);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch (error) {
+    throw new Error(`${pluginId} customAgents is not valid JSON; refusing to overwrite it: ${String(error)}`);
+  }
   if (!Array.isArray(parsed)) {
     throw new Error(`${pluginId} customAgents must be a JSON array; refusing to overwrite it`);
   }

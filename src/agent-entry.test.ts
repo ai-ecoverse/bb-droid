@@ -243,4 +243,15 @@ describe("readActiveAcpSetting", () => {
     ).rejects.toThrow(/^bb--provider-acp-next customAgents must be a JSON array/);
     expect(asked).toEqual(["bb--provider-acp-next"]);
   });
+
+  it("names the adapter and stops when its setting is not valid JSON", async () => {
+    const asked: string[] = [];
+    await expect(
+      readActiveAcpSetting(async (pluginId) => {
+        asked.push(pluginId);
+        return { customAgents: "[not json" };
+      }),
+    ).rejects.toThrow(/^bb--provider-acp-next customAgents is not valid JSON/);
+    expect(asked).toEqual(["bb--provider-acp-next"]);
+  });
 });
