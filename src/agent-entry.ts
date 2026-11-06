@@ -1,9 +1,12 @@
+import { join } from "node:path";
+
 export type JsonObject = Record<string, unknown>;
 export type CustomAgent = JsonObject & { id?: unknown; command?: unknown; env?: unknown };
 
-// The ACP adapters whose `customAgents` setting can carry Droid. bb ships the
-// rebuilt adapter as an opt-in preview; enabling it disables `provider-acp`,
-// so at most one of these answers a settings read at a time.
+// The ACP adapters whose `customAgents` setting can carry Droid. bb 0.46
+// shipped the rebuilt adapter as the opt-in `bb--provider-acp-next`, which
+// disabled `provider-acp` when enabled; from bb 0.47 the rebuilt adapter is
+// `provider-acp` itself. At most one of these answers a settings read.
 export const ACP_PLUGIN_IDS = ["bb--provider-acp-next", "provider-acp"] as const;
 export type AcpPluginId = (typeof ACP_PLUGIN_IDS)[number];
 
@@ -41,6 +44,20 @@ export const PROFILE = {
   },
   installHint: "Install and authenticate Factory Droid, then run `bb plugin reload droid`.",
 } as const;
+
+// Droid keeps its login under ~/.factory in one of these files, depending on
+// the credential backend: the OS keyring, the macOS login keychain, or a plain
+// file. Droid's own logged-in check accepts any of them. `auth.v2.key` is only
+// an encryption key and does not mean a login exists.
+export const FACTORY_LOGIN_FILES = ["auth.v2.keyring", "auth.v2.loginkeychain", "auth.v2.file"] as const;
+
+export function findFactoryLogin(factoryDir: string, exists: (path: string) => boolean): string | null {
+  for (const name of FACTORY_LOGIN_FILES) {
+    const path = join(factoryDir, name);
+    if (exists(path)) return path;
+  }
+  return null;
+}
 
 export function isObject(value: unknown): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
