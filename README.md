@@ -6,7 +6,7 @@ After installation, **Factory Droid** appears in bb as provider **`acp-droid`**.
 
 ## Prerequisites
 
-- bb 0.40 or newer with its built-in ACP providers plugin enabled.
+- bb 0.48.1 or newer with its built-in ACP providers plugin enabled.
 - Install and authenticate the [Factory Droid CLI](https://docs.factory.ai/cli/getting-started/overview).
 
 ## Install
@@ -83,6 +83,44 @@ bb provider models acp-droid
 If the CLI moves after an upgrade, `bb droid repair` records its new
 absolute path and reloads bb.
 
+## Account usage
+
+The plugin adds Factory Droid to bb's standard **Usage** panel. Enable bb's
+built-in usage panel if it is disabled. Each machine has its own resource;
+credentials are read on that machine, not copied from the server's login.
+The optional Factory API key plugin setting is used on each selected machine.
+
+For Factory accounts using rolling quota billing, the panel shows **Standard**
+and **Core** usage for the **5-hour, weekly, and monthly** windows returned by
+Factory, including reset times. An unstarted window has no reset time. This
+is account quota, separate from the context meter in an individual thread.
+Legacy billing formats and customer-hosted deployments are not supported.
+Prepaid balances are not shown as percentages because Factory does not
+provide a corresponding allowance.
+
+Authentication uses the plugin's API key setting, a `FACTORY_API_KEY` in the
+managed ACP entry, the machine's `FACTORY_API_KEY`, or the CLI's saved login
+under `~/.factory`, in that order. The collector reads Droid's
+encrypted `auth.v2.loginkeychain` and older `auth.v2.keyring` files on macOS
+using the existing **Factory CLI** Keychain item. On Linux, keyrings require
+`secret-tool` (libsecret). The encrypted `auth.v2.file` / `auth.v2.key` backend
+is supported on all platforms; native Windows keyring credentials require an
+API key instead. `FACTORY_DISABLE_KEYRING=1` skips secure-store reads.
+
+Saved login credentials and encryption keys are read only inside the host
+worker and are never included in usage RPC results, logs, or bb's usage cache.
+The collector does not write
+Droid's credentials or rotate its refresh token. If the login expires, open
+`droid` on that machine to refresh it, then refresh the usage panel. API keys
+must have access to Factory's billing-limits endpoint; denied access is shown
+as an error rather than zero usage.
+
+Successful measurements are cached in memory for up to 60 seconds. The panel's
+refresh button requests a fresh measurement for that resource. Listing usage
+resources reads bb's machine/provider metadata only and does not access a
+credential store or contact Factory. Collection uses a private host worker
+and discoverable `provider-usage.v1` RPCs, without changing bb or the ACP bridge.
+
 ## Troubleshooting
 
 ### `Internal error: Agent error` or `No active ACP session`
@@ -150,4 +188,5 @@ npm run build
 npm test
 ```
 
-The plugin requires bb 0.40+ and plugin SDK 0.4.8+. Licensed under MIT.
+The plugin requires bb 0.48.1+ and plugin SDK 0.6.104+, the versions used to
+verify host workers and usage-source discovery. Licensed under MIT.

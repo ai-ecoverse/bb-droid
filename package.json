@@ -20,8 +20,8 @@
     "url": "git+https://github.com/ai-ecoverse/bb-droid.git"
   },
   "engines": {
-    "bb": ">=0.40",
-    "bbPluginSdk": ">=0.4.8"
+    "bb": ">=0.48.1",
+    "bbPluginSdk": ">=0.6.104"
   },
   "bb": {
     "name": "Factory Droid",
@@ -30,6 +30,7 @@
       "icon": "./assets/logo.svg"
     },
     "server": "./server.ts",
+    "host": "./host.ts",
     "app": "./app.tsx",
     "skills": []
   },
@@ -60,6 +61,7 @@
     "better-sqlite3": "^13.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cron-parser": "^5.10.4",
     "hono": "^4.13.13",
     "sonner": "^1.7.4",
     "tailwind-merge": "^3.4.0",

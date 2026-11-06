@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
+import { registerUsageSource } from "./src/usage-source.js";
 import {
   PROFILE,
   findFactoryLogin,
@@ -120,6 +121,13 @@ export default function plugin(bb: BbPluginApi) {
       secret: true,
     },
   });
+  const clearUsageCache = registerUsageSource(bb, async () => {
+    const { factoryApiKey } = await settings.get();
+    if (factoryApiKey?.trim()) return factoryApiKey;
+    const setting = await readSettingAgents();
+    const entry = findOwnAgent(setting?.agents ?? readLegacyAgents(await dataDir()));
+    return envApiKey(entry?.env);
+  });
 
   async function dataDir(): Promise<string> {
     try {
@@ -219,6 +227,7 @@ export default function plugin(bb: BbPluginApi) {
   }
 
   settings.onChange(() => {
+    clearUsageCache();
     void provision().catch((error) => {
       bb.log.error(`Failed to apply Factory API key: ${String(error)}`);
     });
