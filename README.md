@@ -28,14 +28,18 @@ bb plugin install .
 ```
 
 The plugin locates the CLI and upserts a managed entry in the running ACP
-adapter's `customAgents` setting without disturbing other agents. That is
-bb's rebuilt adapter (`bb--provider-acp-next`, "ACP providers [New adapter]")
-when it is enabled, and the built-in `provider-acp` otherwise. It uses
+adapter's `customAgents` setting without disturbing other agents. On bb 0.47
+and later that is the built-in `provider-acp`; on bb 0.46 it is the opt-in
+`bb--provider-acp-next` ("ACP providers [New adapter]") when that is enabled,
+and `provider-acp` otherwise. It uses
 `droid exec --output-format acp` over stdio. A leftover `customAcpAgents`
 entry in `config.json` is removed on repair, because bb 0.40 rejects that
 shape unless `modelCli.listArgs` is present and 0.41 stops reading it.
 
-ACP uses the interactive `droid` login when it is valid. Long-lived ACP
+ACP uses the interactive `droid` login when it is valid. Droid stores that
+login under `~/.factory` as `auth.v2.keyring`, `auth.v2.loginkeychain` (macOS
+login keychain), or `auth.v2.file`, depending on the credential backend;
+`bb droid status` accepts any of them, as Droid does. Long-lived ACP
 children can still drop that token. For a durable credential, set a
 [Factory API key](https://app.factory.ai/settings/api-keys) in Extensions →
 Plugins → Factory Droid, then `bb droid repair`.
@@ -117,12 +121,18 @@ deletes the legacy one.
 
 bb's built-in ACP provider supplies the ACP-to-bb runtime. This plugin manages
 the provider-specific launch profile through that plugin's `customAgents`
-setting. bb's rebuilt ACP adapter is an opt-in preview that disables
-`provider-acp` when enabled, so the plugin writes to whichever of the two is
-running; `bb droid status` names it. Under the rebuilt adapter, Droid's
-`AskUser` tool works: that adapter accepts ACP form elicitations, which
-`provider-acp` declines, so Droid cancels its own questions there. Authentication and model availability remain owned by the vendor CLI
-and the user's account.
+setting. bb 0.46 shipped a rebuilt ACP adapter as the opt-in
+`bb--provider-acp-next`, which disabled `provider-acp` when enabled, so the
+plugin writes to whichever of the two is running; `bb droid status` names it.
+From bb 0.47 the rebuilt adapter is `provider-acp` itself.
+
+Droid's `AskUser` tool needs the rebuilt adapter, which accepts ACP form
+elicitations; the older `provider-acp` of bb 0.46 and earlier declines them,
+so Droid cancels its own questions there. bb 0.48.1 and later fold Droid's
+"Other answer" field into its question and show up to 10 questions. Droid 1.x
+also sends ACP `usage_update`, which bb shows as the thread's context meter
+(the size is Droid's auto-compaction limit). Authentication and model
+availability remain owned by the vendor CLI and the user's account.
 
 The package ID is `droid`; the provider ID is `acp-droid`. The compact icon
 is a `currentColor` mask so it follows the bb theme.

@@ -16,7 +16,7 @@ Release procedure for this plugin. Tag a new version; never move a tag; do not o
 | Range | `^0.3.0` |
 | Listing owner | `author.github`: `trieloff` |
 
-`acp-droid` is registered through the running builtin ACP adapter's `customAgents` setting (`bb--provider-acp-next` when enabled, else `provider-acp`), not `bb.providers.register`. Current shipped version: `0.3.0` / tag `v0.3.0`.
+`acp-droid` is registered through the running builtin ACP adapter's `customAgents` setting (`provider-acp` on bb 0.47+; on bb 0.46, `bb--provider-acp-next` when enabled, else `provider-acp`), not `bb.providers.register`. Current shipped version: `0.3.0` / tag `v0.3.0`.
 
 ## Tag, do not PR
 
@@ -87,7 +87,7 @@ Pass when:
 - `bb provider models acp-droid` prints a model table
 - Recent logs are `registered acp-droid with …` or `acp-droid is already configured`
 
-`bb droid` with no args is `status`. Do not run `bb droid unregister` as part of a release. Boot-time `Could not read ACP customAgents from any adapter` warnings are the settings-race retry; they must be followed by a successful register. `bb droid status` reports which adapter (`bb--provider-acp-next` or `provider-acp`) holds the entry.
+`bb droid` with no args is `status`. Do not run `bb droid unregister` as part of a release. Boot-time `Could not read ACP customAgents from any adapter` warnings are the settings-race retry; they must be followed by a successful register. `bb droid status` reports which adapter (`provider-acp`, or `bb--provider-acp-next` on bb 0.46) holds the entry, and the Factory login file it found (`auth.v2.keyring`, `auth.v2.loginkeychain`, or `auth.v2.file`).
 
 ## Cut the release
 

@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import {
   PROFILE,
+  findFactoryLogin,
   findOwnAgent,
   isObject,
   isOwnAgent,
@@ -84,8 +85,8 @@ function writeAtomic(path: string, value: JsonObject): void {
   }
 }
 
-function factoryAuthPath(): string {
-  return join(homedir(), ".factory", "auth.v2.file");
+function factoryLoginPath(): string | null {
+  return findFactoryLogin(join(homedir(), ".factory"), existsSync);
 }
 
 function envApiKey(env: unknown): string | undefined {
@@ -278,7 +279,7 @@ export default function plugin(bb: BbPluginApi) {
         const entry = (setting === null ? undefined : findOwnAgent(setting.agents))
           ?? findOwnAgent(legacyAgents);
         const binary = findBinary(entry);
-        const loginFile = existsSync(factoryAuthPath());
+        const loginPath = factoryLoginPath();
         const { factoryApiKey } = await settings.get();
         const apiKey = Boolean(factoryApiKey) || Boolean(envApiKey(entry?.env)) || Boolean(envApiKey(process.env));
         let registered = false;
@@ -289,7 +290,7 @@ export default function plugin(bb: BbPluginApi) {
           ? "no running ACP adapter"
           : `${setting.agents.some(isOwnAgent) ? "present" : "missing"} (${setting.pluginId})`;
         const legacy = legacyAgents.some(isOwnAgent) ? "present" : "absent";
-        const ready = Boolean(binary && entry && registered && (apiKey || loginFile));
+        const ready = Boolean(binary && entry && registered && (apiKey || loginPath !== null));
         const hint = !ready
           ? "Factory is not authenticated for ACP. Run `droid` to log in, or set the Factory API key plugin setting and `bb droid repair`."
           : apiKey
@@ -302,7 +303,7 @@ export default function plugin(bb: BbPluginApi) {
             `ACP customAgents entry: ${settingEntry}`,
             `legacy config.json entry: ${legacy}`,
             `bb provider ${PROFILE.providerId}: ${registered ? "registered" : "NOT registered"}`,
-            `Factory login file: ${loginFile ? factoryAuthPath() : "MISSING"}`,
+            `Factory login file: ${loginPath ?? "MISSING"}`,
             `FACTORY_API_KEY: ${apiKey ? "set" : "not set"}`,
             ...(hint ? [hint] : []),
           ].join("\n") + "\n",

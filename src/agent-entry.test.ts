@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   ACP_PLUGIN_IDS,
+  FACTORY_LOGIN_FILES,
   PROFILE,
+  findFactoryLogin,
   findOwnAgent,
   managedAgent,
   parseCustomAgents,
@@ -253,5 +255,30 @@ describe("readActiveAcpSetting", () => {
       }),
     ).rejects.toThrow(/^bb--provider-acp-next customAgents is not valid JSON/);
     expect(asked).toEqual(["bb--provider-acp-next"]);
+  });
+});
+
+describe("findFactoryLogin", () => {
+  const dir = "/home/u/.factory";
+  const only = (...names: string[]) => (path: string) => names.some((name) => path === `${dir}/${name}`);
+
+  it("checks the same files as droid's own logged-in check", () => {
+    expect(FACTORY_LOGIN_FILES).toEqual(["auth.v2.keyring", "auth.v2.loginkeychain", "auth.v2.file"]);
+  });
+
+  it.each(FACTORY_LOGIN_FILES)("finds a login stored as %s", (name) => {
+    expect(findFactoryLogin(dir, only(name))).toBe(`${dir}/${name}`);
+  });
+
+  it("finds the macOS login keychain file when no plain auth file exists", () => {
+    expect(findFactoryLogin(dir, only("auth.v2.loginkeychain", "auth.v2.key"))).toBe(`${dir}/auth.v2.loginkeychain`);
+  });
+
+  it("does not treat the encryption key alone as a login", () => {
+    expect(findFactoryLogin(dir, only("auth.v2.key"))).toBeNull();
+  });
+
+  it("returns null when no login file exists", () => {
+    expect(findFactoryLogin(dir, () => false)).toBeNull();
   });
 });
