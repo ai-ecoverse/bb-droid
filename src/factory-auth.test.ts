@@ -70,6 +70,18 @@ describe("Factory credential storage", () => {
     const secureKey = async () => { throw new Error("sensitive-child-output"); };
     await expect(readFactoryCredential({ factoryDir: f.dir, platform: "darwin", secureKey })).rejects.toThrow("could not be decrypted");
   });
+  it("does not fall back to an older keyfile login when the selected keychain login cannot be read", async () => {
+    const f = await fixture();
+    await writeFile(join(f.dir, "auth.v2.loginkeychain"), "selected-login");
+    const secureKey = async () => { throw new FactoryAuthError("error", "Factory's credential store is unavailable."); };
+    await expect(readFactoryCredential({ factoryDir: f.dir, platform: "darwin", secureKey })).rejects.toMatchObject({ status: "error", message: "Factory's credential store is unavailable." });
+  });
+  it("does not fall back to an older keyfile login when the selected keychain login cannot be decrypted", async () => {
+    const f = await fixture();
+    await writeFile(join(f.dir, "auth.v2.keyring"), "selected-login");
+    const secureKey = async () => randomBytes(32).toString("base64");
+    await expect(readFactoryCredential({ factoryDir: f.dir, platform: "linux", secureKey })).rejects.toThrow("could not be decrypted");
+  });
   it("refuses customer-deployment credentials before reading a token or keychain", async () => {
     const f = await fixture();
     await writeFile(join(f.dir, "auth-deployment.json"), JSON.stringify({ deployment: { kind: "prem" } }));

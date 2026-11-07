@@ -48,7 +48,7 @@ export async function readSecureKey(account: string, platform: NodeJS.Platform, 
         { timeout: 10_000, maxBuffer: 4096, signal })).stdout.trim();
     }
     if (platform === "linux") {
-      return (await run("secret-tool", ["lookup", "service", "Factory CLI", "account", account],
+      return (await run("/usr/bin/secret-tool", ["lookup", "service", "Factory CLI", "account", account],
         { timeout: 10_000, maxBuffer: 4096, signal })).stdout.trim();
     }
   } catch { /* Do not propagate child output or raw credential-store errors. */ }
@@ -82,12 +82,9 @@ export async function readFactoryCredential(options: {
     ? [["auth.v2.loginkeychain", "auth-encryption-key-security-cli"], ["auth.v2.keyring", "auth-encryption-key"]]
     : [["auth.v2.keyring", "auth-encryption-key"]];
   candidates.push(["auth.v2.file", ""]);
-  let found = false;
-  let failure: FactoryAuthError | undefined;
   for (const [file, account] of candidates) {
     const ciphertext = await optionalFile(join(dir, file));
     if (ciphertext === null) continue;
-    found = true;
     try {
       const key = account
         ? await secureKey(account, platform, options.signal)
@@ -108,12 +105,11 @@ export async function readFactoryCredential(options: {
       }
       return { token: credentials.access_token, email, organizationId: credentials.active_organization_id ?? null };
     } catch (error) {
-      // An expired selected login must not silently switch to an older account.
-      if (error instanceof FactoryAuthError && error.status === "expired") throw error;
-      failure = error instanceof FactoryAuthError ? error
-        : new FactoryAuthError("error", "Factory login could not be decrypted. Open Droid to repair the login.");
+      // The first login file that exists is the selected login. A failure must
+      // not silently switch to an older account's leftover file.
+      if (error instanceof FactoryAuthError) throw error;
+      throw new FactoryAuthError("error", "Factory login could not be decrypted. Open Droid to repair the login.");
     }
   }
-  if (found) throw failure ?? new FactoryAuthError("error", "Factory login could not be read.");
   throw new FactoryAuthError("unauthenticated", "Sign in with Droid or configure a Factory API key.");
 }

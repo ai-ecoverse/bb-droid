@@ -1,7 +1,7 @@
 import type { BbPluginApi } from "@get-bb/plugin-sdk";
 import { PROFILE } from "./agent-entry.js";
 import { unavailableUsage } from "./factory-usage.js";
-import { usageFetchMethod, usageHostContract, usageListMethod, usageSourceContract, type UsageMeasurement } from "./usage-contract.js";
+import { usageFetchMethod, usageHostContract, usageListMethod, usageMeasurementSchema, usageSourceContract, type UsageMeasurement } from "./usage-contract.js";
 
 export function registerUsageSource(bb: BbPluginApi, getApiKey: () => Promise<string | undefined>): () => void {
   const worker = bb.hosts.experimental_client({ contract: usageHostContract });
@@ -23,7 +23,7 @@ export function registerUsageSource(bb: BbPluginApi, getApiKey: () => Promise<st
     let value: UsageMeasurement;
     try {
       const apiKey = await getApiKey();
-      value = await worker.call("collectUsage", apiKey ? { apiKey } : {}, { hostId, signal: AbortSignal.any([lifetime.signal, signal]) });
+      value = usageMeasurementSchema.parse(await worker.call("collectUsage", apiKey ? { apiKey } : {}, { hostId, signal: AbortSignal.any([lifetime.signal, signal]) }));
     } catch { value = unavailableUsage("error", "Factory usage could not be collected from this machine."); }
     value = { ...value, observedAt: value.observedAt ?? previous?.observedAt ?? null };
     if (!lifetime.signal.aborted && startedIn === generation) cache.set(hostId, value);

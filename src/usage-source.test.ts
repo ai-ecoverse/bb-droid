@@ -128,3 +128,21 @@ it.each([
     expect(harness.experimental_hostRpcCalls[0].input).toEqual(expected ? { apiKey: expected } : {});
   } finally { await harness.lifecycle.dispose(); }
 });
+
+it("drops fields outside the public measurement and rejects malformed worker payloads", async () => {
+  const leaky = { ...measurement(), refreshToken: "never-expose-this", usage: { ...measurement().usage, accessToken: "never-expose-this" } };
+  const collect = vi.fn().mockResolvedValueOnce(leaky).mockResolvedValueOnce({ usage: "nonsense" });
+  const { bb, harness } = createFakePluginHost({ sdk: {
+    hosts: { list: async () => [makeHostResponse({ id: "host", status: "connected" })] },
+    providers: { list: async () => [{ id: "acp-droid", displayName: "Droid", pluginId: "provider-acp" }] },
+  }, experimental_callHostRpc: collect });
+  try {
+    registerUsageSource(bb, async () => undefined);
+    const read = (refresh: boolean) => harness.behavior.callRpc(usageFetchMethod, { resourceId: "host", refresh });
+    const first = await read(false);
+    expect(first).toMatchObject({ usage: { status: "ok" } });
+    expect(JSON.stringify(first)).not.toContain("never-expose-this");
+    expect(JSON.stringify(await read(false))).not.toContain("never-expose-this");
+    expect(await read(true)).toMatchObject({ usage: { status: "error", message: "Factory usage could not be collected from this machine." } });
+  } finally { await harness.lifecycle.dispose(); }
+});
