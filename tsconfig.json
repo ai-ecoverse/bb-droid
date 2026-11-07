@@ -10,5 +10,5 @@
     "noEmit": true,
     "skipLibCheck": false
   },
-  "include": ["server.ts", "app.tsx", "src/**/*.ts"]
+  "include": ["server.ts", "host.ts", "app.tsx", "src/**/*.ts"]
 }
