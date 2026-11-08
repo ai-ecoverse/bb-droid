@@ -13,10 +13,10 @@ Release procedure for this plugin. Tag a new version; never move a tag; do not o
 | CLI | `bb droid` (`status`, `repair`, `unregister`) |
 | Marketplace entry | get-bb/marketplace `entries/droid.json` |
 | Source | `https://github.com/ai-ecoverse/bb-droid.git` |
-| Range | `^0.3.0` |
+| Range | `^0.4.0` |
 | Listing owner | `author.github`: `trieloff` |
 
-`acp-droid` is registered through the running builtin ACP adapter's `customAgents` setting (`provider-acp` on bb 0.47+; on bb 0.46, `bb--provider-acp-next` when enabled, else `provider-acp`), not `bb.providers.register`. Current shipped version: `0.3.0` / tag `v0.3.0`.
+`acp-droid` is registered through the running builtin ACP adapter's `customAgents` setting (`provider-acp` on bb 0.47+; on bb 0.46, `bb--provider-acp-next` when enabled, else `provider-acp`), not `bb.providers.register`. Current shipped version: `0.4.0` / tag `v0.4.0`.
 
 ## Tag, do not PR
 
@@ -28,22 +28,22 @@ Never move, delete, or re-cut a tag. Ship a new version.
 
 `dist/` is committed and is what a marketplace git install runs. Path installs load TypeScript directly, so a healthy local checkout does not prove the tag is good.
 
-## The range: `^0.3.0`
+## The range: `^0.4.0`
 
-Caret on `0.x` pins the minor. Confirmed with node-semver 7.8.5 `satisfies` / `maxSatisfying`:
+Caret on `0.x` pins the minor (`>=0.4.0 <0.5.0`):
 
-| Version | `^0.3.0` |
+| Version | `^0.4.0` |
 |---|---|
-| `0.3.0` | yes |
-| `0.3.1` | yes |
-| `0.3.2` | yes |
-| `0.4.0` | **no** |
+| `0.3.2` | no |
+| `0.4.0` | yes |
+| `0.4.1` | yes |
+| `0.5.0` | **no** |
 | `1.0.0` | no |
 
-- **Patch (`0.3.x`)**: bump, rebuild `dist/`, tag `v0.3.x`. No marketplace PR.
-- **Minor (`0.4.0`) or listing edits**: tag **and** a reviewed marketplace PR. Listing fields today: `id`, `displayName`, `description`, `icon`, `tags`, `author`, `source.git.url`, `source.git.range`. The icon is vendored in the marketplace as `icons/droid-0f671277.svg`.
+- **Patch (`0.4.x`)**: bump, rebuild `dist/`, tag `v0.4.x`. No marketplace PR.
+- **Minor (`0.5.0`) or listing edits**: tag **and** a reviewed marketplace PR. Listing fields today: `id`, `displayName`, `description`, `icon`, `tags`, `author`, `source.git.url`, `source.git.range`. The icon is vendored in the marketplace as `icons/droid-0f671277.svg`.
 
-`npm run check` in the marketplace repo only asserts that some `vX.Y.Z` tag exists at the source URL. It does not evaluate the range, so `^0.3.0` still passes after you tag `v0.4.0`.
+`npm run check` in the marketplace repo only asserts that some `vX.Y.Z` tag exists at the source URL. It does not evaluate the range, so `^0.4.0` still passes after you tag `v0.5.0`.
 
 ## Pre-release checklist
 
